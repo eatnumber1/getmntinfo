@@ -11,6 +11,7 @@
 #import <sysexits.h>
 
 static const int EX_NOTFOUND = 1;
+static const char *progname;
 
 static struct option longopts[] = {
 	{
@@ -24,8 +25,6 @@ static struct option longopts[] = {
 	{ "from", required_argument, NULL, 'f' },
 	{ "on", required_argument, NULL, 'o' },
 };
-
-static const char *progname;
 
 static int usage( FILE *stream ) {
 	return fprintf(stream, "Usage: %s [-hq] [-t fstype] [-f mntfrom] [-o mnton] [--help] [--quiet] [--type=fstype] [--from=mntfrom] [--on=mnton] [format]\n", progname);
