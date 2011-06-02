@@ -24,7 +24,6 @@ static struct option longopts[] = {
 	{ "from", required_argument, NULL, 'f' },
 	{ "on", required_argument, NULL, 'o' },
 };
-static size_t longopts_len = sizeof(longopts) / sizeof(struct option);
 
 static const char *progname;
 
