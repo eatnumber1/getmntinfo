@@ -1,5 +1,5 @@
 CC := clang
-CFLAGS := -Wall -Werror -Wextra $(CFLAGS)
+CFLAGS := -ggdb -Wall -Werror -Wextra $(CFLAGS)
 
 .PHONY: clean
 .DEFAULT_GOAL := getmntinfo
