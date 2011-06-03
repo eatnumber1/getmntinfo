@@ -60,7 +60,7 @@ static char *get_formatted_string( const char *format, struct statfs *stat ) {
 	bzero(components, sizeof(component_t) * ncomponents);
 	component_t *next_component = components;
 	(next_component++)->str = fmt;
-	
+
 	for( size_t i = 0; i < len; i++ ) {
 		if( fmt[i] == '%' ) {
 			fmt[i++] = '\0';
@@ -147,7 +147,7 @@ static char *get_formatted_string( const char *format, struct statfs *stat ) {
 			(next_component++)->str = &fmt[i + 1];
 		}
 	}
-	
+
 	size_t size = 1;
 	for( size_t i = 0; i < ncomponents; i++ ) size += strlen(components[i].str);
 	char *ret = calloc(size, sizeof(char));
