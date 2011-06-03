@@ -1,11 +1,11 @@
 CC := clang
-CFLAGS += -Wall -Werror -Wextra
+CFLAGS := -Wall -Werror -Wextra $(CFLAGS)
 
 .PHONY: clean
-.DEFAULT_GOAL := statfs
+.DEFAULT_GOAL := getmntinfo
 
 clean:
-	$(RM) statfs
+	$(RM) getmntinfo
 
-statfs: statfs.c
+getmntinfo: getmntinfo.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@ $<

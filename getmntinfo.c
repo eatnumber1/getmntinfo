@@ -1,5 +1,10 @@
+#if !defined(__APPLE__) || !defined(__MACH__)
+#error Only Mac OSX is currently supported.
+#endif
+
 #define _DARWIN_FEATURE_64_BIT_INODE
 
+#import <assert.h>
 #import <stdio.h>
 #import <stdlib.h>
 #import <stdbool.h>
@@ -30,41 +35,49 @@ static int usage( FILE *stream ) {
 	return fprintf(stream, "Usage: %s [-hq] [-t fstype] [-f mntfrom] [-o mnton] [--help] [--quiet] [--type=fstype] [--from=mntfrom] [--on=mnton] [format]\n", progname);
 }
 
-static void print_format( const char *fmt, struct statfs *stat ) {
-	// TODO: Don't print incomplete buffers in case of an error.
-	bool formatting = false;
-	size_t len = strlen(fmt);
+static void print_formatted_str( const char *format, struct statfs *stat ) {
+	assert(format != NULL);
+	assert(stat != NULL);
+	size_t len = strlen(format) + 1;
+	char fmt[len];
+	strcpy(fmt, format);
+	size_t ncomponents = 2;
+	for( char *cptr = fmt; *cptr != '\0'; cptr++ )
+		if( *cptr == '%' ) ncomponents += 2;
+
+	char *components[ncomponents];
+	char **next_component = components;
+	*next_component++ = fmt;
 	for( size_t i = 0; i < len; i++ ) {
-		if( formatting ) {
+		if( fmt[i] == '%' ) {
+			fmt[i++] = '\0';
 			switch( fmt[i] ) {
 				case 't':
-					printf("%s", stat->f_fstypename);
+					*next_component++ = stat->f_fstypename;
 					break;
 				case 'f':
-					printf("%s", stat->f_mntfromname);
+					*next_component++ = stat->f_mntfromname;
 					break;
 				case 'o':
-					printf("%s", stat->f_mntonname);
+					*next_component++ = stat->f_mntonname;
 					break;
 				case '%':
-					printf("%c", '%');
+					*next_component++ = "%";
 					break;
+				case '\0':
+					fprintf(stderr, "Missing format specifier at end of format string\n");
+					exit(EX_DATAERR);
 				default:
 					fprintf(stderr, "Unknown format specifier '%c'\n", fmt[i]);
 					exit(EX_DATAERR);
 			}
-			formatting = false;
-		} else if( fmt[i] == '%' ) {
-			if( i == len - 1 ) {
-				fprintf(stderr, "Missing format specifier\n");
-				exit(EX_DATAERR);
-			}
-			formatting = true;
-		} else {
-			printf("%c", fmt[i]);
+			fmt[i] = '\0';
+			*next_component++ = &fmt[i + 1];
 		}
 	}
-	printf("\n");
+	*next_component++ = "\n";
+	
+	for( size_t i = 0; i < ncomponents; i++ ) printf("%s", components[i]);
 }
 
 int main( int argc, char *argv[] ) {
@@ -110,7 +123,7 @@ int main( int argc, char *argv[] ) {
 		if( type != NULL && strncmp(type, mntbuf[i].f_fstypename, MFSTYPENAMELEN) != 0 ) continue;
 		if( from != NULL && strncmp(from, mntbuf[i].f_mntfromname, MAXPATHLEN) != 0 ) continue;
 		if( on != NULL && strncmp(on, mntbuf[i].f_mntonname, MAXPATHLEN) != 0 ) continue;
-		if( argc == 1 ) print_format(argv[0], &mntbuf[i]);
+		if( argc == 1 ) print_formatted_str(argv[0], &mntbuf[i]);
 		retval = EX_OK;
 	}
 	return retval;
