@@ -4,6 +4,7 @@
 
 #define _DARWIN_FEATURE_64_BIT_INODE
 
+#import <stdarg.h>
 #import <assert.h>
 #import <strings.h>
 #import <stdio.h>
@@ -43,10 +44,22 @@ static int usage( FILE *stream ) {
 
 typedef struct {
 	char *str;
-	bool heap;
+	size_t len;
+	bool heap : 1;
+	bool size_known : 1;
 } component_t;
 
-static char *get_formatted_string( const char *format, struct statfs *stat ) {
+static size_t get_formatted_string_asprintf( component_t *component, const char *fmt, ... ) {
+	va_list ap;
+	va_start(ap, fmt);
+	component->len = vasprintf(&component->str, fmt, ap);
+	va_end(ap);
+	component->size_known = true;
+	component->heap = true;
+	return component->len;
+}
+
+static char *get_formatted_string( const char *format, const struct statfs *stat ) {
 	assert(format != NULL);
 	assert(stat != NULL);
 	size_t len = strlen(format) + 1;
@@ -61,80 +74,67 @@ static char *get_formatted_string( const char *format, struct statfs *stat ) {
 	component_t *next_component = components;
 	(next_component++)->str = fmt;
 
+	size_t size = 1;
 	for( size_t i = 0; i < len; i++ ) {
 		if( fmt[i] == '%' ) {
 			fmt[i++] = '\0';
 			switch( fmt[i] ) {
 				case 't':
-					(next_component++)->str = stat->f_fstypename;
+					(next_component++)->str = (char *) stat->f_fstypename;
 					break;
 				case 'f':
-					(next_component++)->str = stat->f_mntfromname;
+					(next_component++)->str = (char *) stat->f_mntfromname;
 					break;
 				case 'o':
-					(next_component++)->str = stat->f_mntonname;
+					(next_component++)->str = (char *) stat->f_mntonname;
 					break;
 				case 'B':
-					asprintf(&next_component->str, "%" PRIu32, stat->f_bsize);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_bsize);
 					break;
 				case 'I':
-					asprintf(&next_component->str, "%" PRId32, stat->f_iosize);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRId32, stat->f_iosize);
 					break;
 				case 'b':
-					asprintf(&next_component->str, "%" PRIu64, stat->f_blocks);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_blocks);
 					break;
 				case 'F':
-					asprintf(&next_component->str, "%" PRIu64, stat->f_bfree);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_bfree);
 					break;
 				case 'a':
-					asprintf(&next_component->str, "%" PRIu64, stat->f_bavail);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_bavail);
 					break;
 				case 'n':
-					asprintf(&next_component->str, "%" PRIu64, stat->f_files);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_files);
 					break;
 				case 'e':
-					asprintf(&next_component->str, "%" PRIu64, stat->f_ffree);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_ffree);
 					break;
 				case 'S':
-					asprintf(&next_component->str, "%" PRId32, stat->f_fsid.val[0]);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRId32, stat->f_fsid.val[0]);
 					break;
 				case 'T':
-					asprintf(&next_component->str, "%" PRId32, stat->f_fsid.val[1]);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRId32, stat->f_fsid.val[1]);
 					break;
 				case 'U':
-					asprintf(&next_component->str, "%" PRId64, *((int64_t *) &stat->f_fsid));
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRId64, *((int64_t *) &stat->f_fsid));
 					break;
 				case 'O':
-					asprintf(&next_component->str, "%" PRIdMAX, (intmax_t) stat->f_owner);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIdMAX, (intmax_t) stat->f_owner);
 					break;
 				case 'P':
 					(next_component++)->str = getpwuid(stat->f_owner)->pw_name;
 					break;
 				case 'p':
-					asprintf(&next_component->str, "%" PRIu32, stat->f_type);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_type);
 					break;
 				case 'g':
-					asprintf(&next_component->str, "%" PRIu32, stat->f_flags);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_flags);
 					break;
 				case 's':
-					asprintf(&next_component->str, "%" PRIu32, stat->f_fssubtype);
-					(next_component++)->heap = true;
+					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_fssubtype);
 					break;
 				case '%':
-					(next_component++)->str = "%";
+					(next_component++)->str = (char *) "%";
 					break;
 				case '\0':
 					fprintf(stderr, "Missing format specifier at end of format string\n");
@@ -148,13 +148,20 @@ static char *get_formatted_string( const char *format, struct statfs *stat ) {
 		}
 	}
 
-	size_t size = 1;
-	for( size_t i = 0; i < ncomponents; i++ ) size += strlen(components[i].str);
+	for( size_t i = 0; i < ncomponents; i++ ) {
+		if( !components[i].size_known ) {
+			components[i].len = strlen(components[i].str);
+			size += components[i].len;
+		}
+	}
+
 	char *ret = calloc(size, sizeof(char));
-	ret[0] = '\0';
 	char *ret_next = ret;
 	for( size_t i = 0; i < ncomponents; i++ ) {
-		ret_next = strcat(ret_next, components[i].str);
+		size_t count = components[i].len * sizeof(char);
+		memcpy(ret_next, components[i].str, count);
+		ret_next += count;
+		*ret_next = '\0';
 		if( components[i].heap ) free(components[i].str);
 	}
 	return ret;
@@ -187,7 +194,6 @@ int main( int argc, char *argv[] ) {
 			case ':':
 				usage(stderr);
 				exit(EX_USAGE);
-				break;
 		}
 	}
 	argc -= optind;
