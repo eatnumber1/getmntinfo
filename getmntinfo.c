@@ -163,6 +163,7 @@ static char *get_formatted_string( const char *format, struct statfs *stat ) {
 int main( int argc, char *argv[] ) {
 	progname = argv[0];
 	char *type = NULL, *from = NULL, *on = NULL;
+	bool quiet = false;
 
 	int ch;
 	while( (ch = getopt_long(argc, argv, "qht:f:o:", longopts, NULL)) != -1 ) {
@@ -177,20 +178,22 @@ int main( int argc, char *argv[] ) {
 				on = optarg;
 				break;
 			case 'q':
+				quiet = true;
 				break;
 			case 'h':
 				usage(stdout);
 				exit(EX_OK);
 			case '?':
 			case ':':
-			default:
 				usage(stderr);
 				exit(EX_USAGE);
+				break;
 		}
 	}
 	argc -= optind;
 	argv += optind;
 
+	char *format = argc == 1 ? argv[0] : "%f on %o (%t)";
 	if( argc > 1 ) {
 		usage(stderr);
 		exit(EX_USAGE);
@@ -203,8 +206,8 @@ int main( int argc, char *argv[] ) {
 		if( type != NULL && strncmp(type, mntbuf[i].f_fstypename, MFSTYPENAMELEN) != 0 ) continue;
 		if( from != NULL && strncmp(from, mntbuf[i].f_mntfromname, MAXPATHLEN) != 0 ) continue;
 		if( on != NULL && strncmp(on, mntbuf[i].f_mntonname, MAXPATHLEN) != 0 ) continue;
-		if( argc == 1 ) {
-			char *str = get_formatted_string(argv[0], &mntbuf[i]);
+		if( !quiet ) {
+			char *str = get_formatted_string(format, &mntbuf[i]);
 			printf("%s\n", str);
 			free(str);
 		}
