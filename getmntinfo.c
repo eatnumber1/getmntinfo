@@ -135,7 +135,9 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 		if( *cptr == '%' ) ncomponents += 2;
 
 	component_t components[ncomponents];
-	bzero(components, sizeof(component_t) * ncomponents);
+	// Memset rather than bzero to work around a bug in clang.
+	//bzero(components, sizeof(component_t) * ncomponents);
+	memset(components, 0, sizeof(component_t) * ncomponents);
 	component_t *next_component = components;
 	(next_component++)->str = fmt;
 
