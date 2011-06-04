@@ -4,6 +4,7 @@
 
 #define _DARWIN_FEATURE_64_BIT_INODE
 
+#import <errno.h>
 #import <stdarg.h>
 #import <assert.h>
 #import <strings.h>
@@ -20,7 +21,69 @@
 #import <sys/types.h>
 #import <pwd.h>
 
-// TODO: Check for errors.
+// Fatal wrappers around libc functions.
+static int evfprintf( FILE *stream, const char *fmt, va_list ap ) {
+	int ret = vfprintf(stream, fmt, ap);
+	if( ret < 0 ) {
+		perror("vfprintf");
+		exit(EX_OSERR);
+	}
+	return ret;
+}
+
+static int efprintf( FILE *stream, const char *fmt, ... ) {
+	va_list ap;
+	va_start(ap, fmt);
+	int ret = evfprintf(stream, fmt, ap);
+	va_end(ap);
+	return ret;
+}
+
+static int eprintf( const char *fmt, ... ) {
+	va_list ap;
+	va_start(ap, fmt);
+	int ret = evfprintf(stdout, fmt, ap);
+	va_end(ap);
+	return ret;
+}
+
+static int evasprintf( char **ret, const char *fmt, va_list ap ) {
+	int retval = vasprintf(ret, fmt, ap);
+	if( retval < 0 ) {
+		perror("vasprintf");
+		exit(EX_OSERR);
+	}
+	return retval;
+}
+
+static struct passwd *egetpwuid( uid_t uid ) {
+	errno = 0;
+	struct passwd *ret = getpwuid(uid);
+	if( ret == NULL && errno != 0 ) {
+		perror("getpwuid");
+		exit(EX_OSERR);
+	}
+	return ret;
+}
+
+static void *ecalloc( size_t count, size_t size ) {
+	void *ret = calloc(count, size);
+	if( ret == NULL ) {
+		perror("calloc");
+		exit(EX_OSERR);
+	}
+	return ret;
+}
+
+static int egetmntinfo( struct statfs **mntbufp, int flags ) {
+	int ret = getmntinfo(mntbufp, flags);
+	if( ret == 0 ) {
+		perror("getmntinfo");
+		exit(EX_OSERR);
+	}
+	return ret;
+}
+// End libc function wrappers.
 
 static const int EX_NOTFOUND = 1;
 static const char *progname;
@@ -38,8 +101,8 @@ static struct option longopts[] = {
 	{ "on", required_argument, NULL, 'o' },
 };
 
-static int usage( FILE *stream ) {
-	return fprintf(stream, "Usage: %s [-hq] [-t fstype] [-f mntfrom] [-o mnton] [--help] [--quiet] [--type=fstype] [--from=mntfrom] [--on=mnton] [format]\n", progname);
+static void usage( FILE *stream ) {
+	efprintf(stream, "Usage: %s [-hq] [-t fstype] [-f mntfrom] [-o mnton] [--help] [--quiet] [--type=fstype] [--from=mntfrom] [--on=mnton] [format]\n", progname);
 }
 
 typedef struct {
@@ -49,10 +112,10 @@ typedef struct {
 	bool size_known : 1;
 } component_t;
 
-static size_t get_formatted_string_asprintf( component_t *component, const char *fmt, ... ) {
+static size_t component_printf( component_t *component, const char *fmt, ... ) {
 	va_list ap;
 	va_start(ap, fmt);
-	component->len = vasprintf(&component->str, fmt, ap);
+	component->len = evasprintf(&component->str, fmt, ap);
 	va_end(ap);
 	component->size_known = true;
 	component->heap = true;
@@ -89,58 +152,58 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 					(next_component++)->str = (char *) stat->f_mntonname;
 					break;
 				case 'B':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_bsize);
+					size += component_printf(next_component++, "%" PRIu32, stat->f_bsize);
 					break;
 				case 'I':
-					size += get_formatted_string_asprintf(next_component++, "%" PRId32, stat->f_iosize);
+					size += component_printf(next_component++, "%" PRId32, stat->f_iosize);
 					break;
 				case 'b':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_blocks);
+					size += component_printf(next_component++, "%" PRIu64, stat->f_blocks);
 					break;
 				case 'F':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_bfree);
+					size += component_printf(next_component++, "%" PRIu64, stat->f_bfree);
 					break;
 				case 'a':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_bavail);
+					size += component_printf(next_component++, "%" PRIu64, stat->f_bavail);
 					break;
 				case 'n':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_files);
+					size += component_printf(next_component++, "%" PRIu64, stat->f_files);
 					break;
 				case 'e':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu64, stat->f_ffree);
+					size += component_printf(next_component++, "%" PRIu64, stat->f_ffree);
 					break;
 				case 'S':
-					size += get_formatted_string_asprintf(next_component++, "%" PRId32, stat->f_fsid.val[0]);
+					size += component_printf(next_component++, "%" PRId32, stat->f_fsid.val[0]);
 					break;
 				case 'T':
-					size += get_formatted_string_asprintf(next_component++, "%" PRId32, stat->f_fsid.val[1]);
+					size += component_printf(next_component++, "%" PRId32, stat->f_fsid.val[1]);
 					break;
 				case 'U':
-					size += get_formatted_string_asprintf(next_component++, "%" PRId64, *((int64_t *) &stat->f_fsid));
+					size += component_printf(next_component++, "%" PRId64, *((int64_t *) &stat->f_fsid));
 					break;
 				case 'O':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIdMAX, (intmax_t) stat->f_owner);
+					size += component_printf(next_component++, "%" PRIdMAX, (intmax_t) stat->f_owner);
 					break;
 				case 'P':
-					(next_component++)->str = getpwuid(stat->f_owner)->pw_name;
+					(next_component++)->str = egetpwuid(stat->f_owner)->pw_name;
 					break;
 				case 'p':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_type);
+					size += component_printf(next_component++, "%" PRIu32, stat->f_type);
 					break;
 				case 'g':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_flags);
+					size += component_printf(next_component++, "%" PRIu32, stat->f_flags);
 					break;
 				case 's':
-					size += get_formatted_string_asprintf(next_component++, "%" PRIu32, stat->f_fssubtype);
+					size += component_printf(next_component++, "%" PRIu32, stat->f_fssubtype);
 					break;
 				case '%':
 					(next_component++)->str = (char *) "%";
 					break;
 				case '\0':
-					fprintf(stderr, "Missing format specifier at end of format string\n");
+					efprintf(stderr, "Missing format specifier at end of format string\n");
 					exit(EX_DATAERR);
 				default:
-					fprintf(stderr, "Unknown format specifier '%c'\n", fmt[i]);
+					efprintf(stderr, "Unknown format specifier '%c'\n", fmt[i]);
 					exit(EX_DATAERR);
 			}
 			fmt[i] = '\0';
@@ -155,15 +218,15 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 		}
 	}
 
-	char *ret = calloc(size, sizeof(char));
+	char *ret = ecalloc(size, sizeof(char));
 	char *ret_next = ret;
 	for( size_t i = 0; i < ncomponents; i++ ) {
 		size_t count = components[i].len * sizeof(char);
 		memcpy(ret_next, components[i].str, count);
 		ret_next += count;
-		*ret_next = '\0';
 		if( components[i].heap ) free(components[i].str);
 	}
+	*ret_next = '\0';
 	return ret;
 }
 
@@ -199,14 +262,14 @@ int main( int argc, char *argv[] ) {
 	argc -= optind;
 	argv += optind;
 
-	char *format = argc == 1 ? argv[0] : "%f on %o (%t)";
 	if( argc > 1 ) {
 		usage(stderr);
 		exit(EX_USAGE);
 	}
+	char *format = argc == 1 ? argv[0] : "%f on %o (%t)";
 
 	struct statfs *mntbuf;
-	int mntsize = getmntinfo(&mntbuf, MNT_NOWAIT);
+	int mntsize = egetmntinfo(&mntbuf, MNT_NOWAIT);
 	int retval = EX_NOTFOUND;
 	for( int i = 0; i < mntsize; i++ ) {
 		if( type != NULL && strncmp(type, mntbuf[i].f_fstypename, MFSTYPENAMELEN) != 0 ) continue;
@@ -214,7 +277,7 @@ int main( int argc, char *argv[] ) {
 		if( on != NULL && strncmp(on, mntbuf[i].f_mntonname, MAXPATHLEN) != 0 ) continue;
 		if( !quiet ) {
 			char *str = get_formatted_string(format, &mntbuf[i]);
-			printf("%s\n", str);
+			eprintf("%s\n", str);
 			free(str);
 		}
 		retval = EX_OK;
