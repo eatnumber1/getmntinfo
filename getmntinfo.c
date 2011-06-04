@@ -108,7 +108,10 @@ static void usage( FILE *stream ) {
 }
 
 typedef struct {
-	char *str;
+	union {
+		const char *constant;
+		char *mutable;
+	} str;
 	size_t len;
 	bool heap : 1;
 	bool size_known : 1;
@@ -117,7 +120,7 @@ typedef struct {
 static size_t component_printf( component_t *component, const char *fmt, ... ) {
 	va_list ap;
 	va_start(ap, fmt);
-	component->len = evasprintf(&component->str, fmt, ap);
+	component->len = evasprintf(&component->str.mutable, fmt, ap);
 	va_end(ap);
 	component->size_known = true;
 	component->heap = true;
@@ -140,7 +143,7 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 	//bzero(components, sizeof(component_t) * ncomponents);
 	memset(components, 0, sizeof(component_t) * ncomponents);
 	component_t *next_component = components;
-	(next_component++)->str = fmt;
+	(next_component++)->str.mutable = fmt;
 
 	size_t size = 1;
 	for( size_t i = 0; i < len; i++ ) {
@@ -148,13 +151,13 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 			fmt[i++] = '\0';
 			switch( fmt[i] ) {
 				case 't':
-					(next_component++)->str = (char *) stat->f_fstypename;
+					(next_component++)->str.constant = stat->f_fstypename;
 					break;
 				case 'f':
-					(next_component++)->str = (char *) stat->f_mntfromname;
+					(next_component++)->str.constant = stat->f_mntfromname;
 					break;
 				case 'o':
-					(next_component++)->str = (char *) stat->f_mntonname;
+					(next_component++)->str.constant = stat->f_mntonname;
 					break;
 				case 'B':
 					size += component_printf(next_component++, "%" PRIu32, stat->f_bsize);
@@ -202,7 +205,7 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 					size += component_printf(next_component++, "%" PRIu32, stat->f_fssubtype);
 					break;
 				case '%':
-					(next_component++)->str = (char *) "%";
+					(next_component++)->str.constant = "%";
 					break;
 				case '\0':
 					efprintf(stderr, "Missing format specifier at end of format string\n");
@@ -212,13 +215,13 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 					exit(EX_DATAERR);
 			}
 			fmt[i] = '\0';
-			(next_component++)->str = &fmt[i + 1];
+			(next_component++)->str.mutable = &fmt[i + 1];
 		}
 	}
 
 	for( size_t i = 0; i < ncomponents; i++ ) {
 		if( !components[i].size_known ) {
-			components[i].len = strlen(components[i].str);
+			components[i].len = strlen(components[i].str.constant);
 			size += components[i].len;
 		}
 	}
@@ -227,9 +230,9 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 	char *ret_next = ret;
 	for( size_t i = 0; i < ncomponents; i++ ) {
 		size_t count = components[i].len * sizeof(char);
-		memcpy(ret_next, components[i].str, count);
+		memcpy(ret_next, components[i].str.constant, count);
 		ret_next += count;
-		if( components[i].heap ) free(components[i].str);
+		if( components[i].heap ) free(components[i].str.mutable);
 	}
 	*ret_next = '\0';
 	return ret;
