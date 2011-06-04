@@ -132,7 +132,8 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 	strcpy(fmt, format);
 	size_t ncomponents = 1;
 	for( char *cptr = fmt; *cptr != '\0'; cptr++ )
-		if( *cptr == '%' ) ncomponents += 2;
+		if( *cptr == '%' )
+			ncomponents += 2;
 
 	component_t components[ncomponents];
 	// Memset rather than bzero to work around a bug in clang.
