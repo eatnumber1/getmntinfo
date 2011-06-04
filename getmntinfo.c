@@ -85,7 +85,9 @@ static int egetmntinfo( struct statfs **mntbufp, int flags ) {
 }
 // End libc function wrappers.
 
-static const int EX_NOTFOUND = 1;
+enum {
+	EX_NOTFOUND = 1
+};
 static const char *progname;
 
 static struct option longopts[] = {
