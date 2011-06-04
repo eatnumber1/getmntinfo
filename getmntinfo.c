@@ -189,7 +189,7 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 					size += component_printf(next_component++, "%" PRIdMAX, (intmax_t) stat->f_owner);
 					break;
 				case 'P':
-					(next_component++)->str = egetpwuid(stat->f_owner)->pw_name;
+					size += component_printf(next_component++, "%s", egetpwuid(stat->f_owner)->pw_name);
 					break;
 				case 'p':
 					size += component_printf(next_component++, "%" PRIu32, stat->f_type);
