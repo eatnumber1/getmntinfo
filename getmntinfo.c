@@ -21,7 +21,6 @@
 #import <sys/types.h>
 #import <pwd.h>
 
-#if 0
 static const struct mount_option_t {
 	const intmax_t option;
 	const char * const name;
@@ -49,7 +48,6 @@ static const struct mount_option_t {
 	{ MNT_MULTILABEL, "multilabel" },
 };
 static const size_t mout_options_size = sizeof(mount_options) / sizeof(struct mount_option_t);
-#endif
 
 // Fatal wrappers around libc functions.
 static int evfprintf( FILE *stream, const char *fmt, va_list ap ) {
@@ -325,7 +323,7 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 			ncomponents += 2;
 
 	component_t components[ncomponents];
-	bzero(components, sizeof(component_t) * ncomponents);
+	memset(components, 0, sizeof(component_t) * ncomponents);
 	component_t *next_component = components;
 	(next_component++)->str.mutable = fmt;
 
@@ -440,8 +438,9 @@ int main( int argc, char *argv[] ) {
 
 	struct option longopts[help_options_len + 1];
 	for( size_t i = 0; i < help_options_len; i++ )
-		longopts[i] = help_options[i].longopt;
-	bzero(&longopts[help_options_len], sizeof(struct option));
+		// memcpy instead of assignment to work around a bug in clang
+		memcpy(&longopts[i], &help_options[i].longopt, sizeof(struct option));
+	memset(&longopts[help_options_len], 0, sizeof(struct option));
 
 	int ch;
 	while( (ch = getopt_long(argc, argv, "qht:f:o:B:I:b:F:a:n:e:S:T:U:O:g:s:", longopts, NULL)) != -1 ) {
