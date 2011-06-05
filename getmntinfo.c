@@ -21,6 +21,36 @@
 #import <sys/types.h>
 #import <pwd.h>
 
+#if 0
+static const struct mount_option_t {
+	const intmax_t option;
+	const char * const name;
+} mount_options[] = {
+	{
+		.option = MNT_RDONLY,
+		.name = "readonly"
+	},
+	{ MNT_SYNCHRONOUS, "synchronous" },
+	{ MNT_NOEXEC, "noexec" },
+	{ MNT_NOSUID, "nosuid" },
+	{ MNT_NODEV, "nodev" },
+	{ MNT_UNION, "union" },
+	{ MNT_ASYNC, "async" },
+	{ MNT_EXPORTED, "exported" },
+	{ MNT_LOCAL, "local" },
+	{ MNT_QUOTA, "quota" },
+	{ MNT_ROOTFS, "rootfs" },
+	{ MNT_DOVOLFS, "volfs" },
+	{ MNT_DONTBROWSE, "dontbrowse" },
+	{ MNT_UNKNOWNPERMISSIONS, "unknownpermissions" },
+	{ MNT_AUTOMOUNTED, "automounted" },
+	{ MNT_JOURNALED, "journaled" },
+	{ MNT_DEFWRITE, "deferwrite" },
+	{ MNT_MULTILABEL, "multilabel" },
+};
+static const size_t mout_options_size = sizeof(mount_options) / sizeof(struct mount_option_t);
+#endif
+
 // Fatal wrappers around libc functions.
 static int evfprintf( FILE *stream, const char *fmt, va_list ap ) {
 	int ret = vfprintf(stream, fmt, ap);
@@ -59,9 +89,31 @@ static int evasprintf( char **ret, const char *fmt, va_list ap ) {
 static struct passwd *egetpwuid( uid_t uid ) {
 	errno = 0;
 	struct passwd *ret = getpwuid(uid);
-	if( ret == NULL && errno != 0 ) {
-		perror("getpwuid");
-		exit(EX_OSERR);
+	if( ret == NULL ) {
+		if( errno != 0 ) {
+			perror("getpwuid");
+			exit(EX_OSERR);
+		} else {
+			// OS X is non-compliant with POSIX.1-2008, so this code will never run.
+			efprintf(stderr, "No passwd entry found for uid %jd\n", uid);
+			exit(EX_DATAERR);
+		}
+	}
+	return ret;
+}
+
+static struct passwd *egetpwnam( const char *login ) {
+	errno = 0;
+	struct passwd *ret = getpwnam(login);
+	if( ret == NULL ) {
+		if( errno != 0 ) {
+			perror("getpwnam");
+			exit(EX_OSERR);
+		} else {
+			// OS X is non-compliant with POSIX.1-2008, so this code will never run.
+			efprintf(stderr, "No passwd entry found for user \"%s\"\n", login);
+			exit(EX_DATAERR);
+		}
 	}
 	return ret;
 }
@@ -90,21 +142,154 @@ enum {
 };
 static const char *progname;
 
-static struct option longopts[] = {
+typedef struct {
+	struct option longopt;
+	const char *helpstr;
+	const char *argname;
+} help_option_t;
+
+static help_option_t help_options[] = {
 	{
-		.name = "quiet",
-		.has_arg = no_argument,
-		.flag = NULL,
-		.val = 'q'
+		.longopt = {
+			.name = "quiet",
+			.has_arg = no_argument,
+			.flag = NULL,
+			.val = 'q'
+		},
+		.helpstr = "Produce no output",
 	},
-	{ "type", required_argument, NULL, 't' },
-	{ "help", no_argument, NULL, 'h' },
-	{ "from", required_argument, NULL, 'f' },
-	{ "on", required_argument, NULL, 'o' },
+	{ { "help", no_argument, NULL, 'h' }, "This help message", NULL },
+	{ { "bsize", required_argument, NULL, 'B' }, "Fundamental filesystem block size", "SIZE" },
+	{ { "iosize", required_argument, NULL, 'I' }, "Optimal transfer block size", "SIZE" },
+	{ { "blocks", required_argument, NULL, 'b' }, "Total data blocks in filesystem", "COUNT" },
+	{ { "bfree", required_argument, NULL, 'F' }, "Free blocks in filesystem", "COUNT" },
+	{ { "bavail", required_argument, NULL, 'a' }, "Free blocks avail to non-superuser", "COUNT" },
+	{ { "files", required_argument, NULL, 'n' }, "Total file nodes in filesystem", "COUNT" },
+	{ { "ffree", required_argument, NULL, 'e' }, "Free file nodes in filesystem", "COUNT" },
+	{ { "fsid", required_argument, NULL, 'U' }, "Filesystem identifier", "ID" },
+	{ { "fsid0", required_argument, NULL, 'S' }, "Top four bytes of filesystem identifier", "ID" },
+	{ { "fsid1", required_argument, NULL, 'T' }, "Bottom four bytes of filesystem identifier", "ID" },
+	{ { "owner", required_argument, NULL, 'O' }, "User that mounted the filesystem", "USER" },
+	{ { "flags", required_argument, NULL, 'g' }, "Copy of mount exported flags", "FLAGS" },
+	{ { "fssubtype", required_argument, NULL, 's' }, "Filesystem sub-type (flavor)", "TYPE" },
+	{ { "type", required_argument, NULL, 't' }, "Type of filesystem", "TYPE" },
+	{ { "mntonname", required_argument, NULL, 'o' }, "Directory on which mounted", "DIR" },
+	{ { "mntfromname", required_argument, NULL, 'f' }, "Mounted filesystem", "NAME" },
 };
+static size_t help_options_len = sizeof(help_options) / sizeof(help_option_t);
+
+typedef union {
+	intmax_t intmax;
+	uintmax_t uintmax;
+	int64_t int64;
+	uint64_t uint64;
+	int32_t int32;
+	uint32_t uint32;
+	int16_t int16;
+	uint16_t uint16;
+	int8_t int8;
+	uint8_t uint8;
+} number_t;
+
+typedef enum {
+	intmax_type_t,
+	int64_type_t,
+	int32_type_t,
+	int16_type_t,
+	int8_type_t,
+	// unsigned must come after signed.
+	// uintmax_type_t must come first.
+	uintmax_type_t,
+	uint64_type_t,
+	uint32_type_t,
+	uint16_type_t,
+	uint8_type_t
+} type_t;
+
+static number_t strtonumber( const char *str, int base, const type_t type ) {
+	errno = 0;
+	number_t ret;
+	char *endptr;
+	if( type >= uintmax_type_t ) {
+		ret.uintmax = strtoumax(str, &endptr, base);
+		if( errno != 0 ) return ret;
+		switch( type ) {
+			case uintmax_type_t:
+				break;
+			case uint64_type_t:
+				if( ret.uint64 != ret.uintmax ) errno = ERANGE;
+				break;
+			case uint32_type_t:
+				if( ret.uint32 != ret.uintmax ) errno = ERANGE;
+				break;
+			case uint16_type_t:
+				if( ret.uint16 != ret.uintmax ) errno = ERANGE;
+				break;
+			case uint8_type_t:
+				if( ret.uint8 != ret.uintmax ) errno = ERANGE;
+				break;
+			default:
+				efprintf(stderr, "Unknown type_t type\n");
+				exit(EX_SOFTWARE);
+		}
+	} else {
+		ret.intmax = strtoimax(str, &endptr, base);
+		if( errno != 0 ) return ret;
+		switch( type ) {
+			case intmax_type_t:
+				break;
+			case int64_type_t:
+				if( ret.int64 != ret.intmax ) errno = ERANGE;
+				break;
+			case int32_type_t:
+				if( ret.int32 != ret.intmax ) errno = ERANGE;
+				break;
+			case int16_type_t:
+				if( ret.int16 != ret.intmax ) errno = ERANGE;
+				break;
+			case int8_type_t:
+				if( ret.int8 != ret.intmax ) errno = ERANGE;
+				break;
+			default:
+				efprintf(stderr, "Unknown type_t type\n");
+				exit(EX_SOFTWARE);
+		}
+	}
+	return ret;
+}
+
+static number_t estrtonumber( const char *str, int base, const type_t type ) {
+	number_t ret = strtonumber(str, base, type);
+	if( errno != 0 ) {
+		perror("strtonumber");
+		exit(EX_DATAERR);
+	}
+	return ret;
+}
+
+static void help() {
+	for( size_t i = 0; i < help_options_len; i++ ) {
+		help_option_t *option = &help_options[i];
+		eprintf("  -%c, --", option->longopt.val);
+		const char *fmt = "%-22s";
+		if( option->argname == NULL ) {
+			eprintf(fmt, option->longopt.name);
+		} else {
+			size_t longopt_name_len = strlen(option->longopt.name), longopt_argname_len = strlen(option->argname),
+				   longopt_str_len = 2 + longopt_name_len + longopt_argname_len;
+			char longopt_str[longopt_str_len];
+			longopt_str[0] = '\0';
+			strcat(longopt_str, option->longopt.name);
+			strcat(longopt_str, "=");
+			strcat(longopt_str, option->argname);
+			eprintf(fmt, longopt_str);
+		}
+		eprintf(" %s\n", option->helpstr);
+	}
+}
 
 static void usage( FILE *stream ) {
-	efprintf(stream, "Usage: %s [-hq] [-t fstype] [-f mntfrom] [-o mnton] [--help] [--quiet] [--type=fstype] [--from=mntfrom] [--on=mnton] [format]\n", progname);
+	efprintf(stream, "Usage: %s [options] [format]\n", progname);
 }
 
 typedef struct {
@@ -139,9 +324,7 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 			ncomponents += 2;
 
 	component_t components[ncomponents];
-	// Memset rather than bzero to work around a bug in clang.
-	//bzero(components, sizeof(component_t) * ncomponents);
-	memset(components, 0, sizeof(component_t) * ncomponents);
+	bzero(components, sizeof(component_t) * ncomponents);
 	component_t *next_component = components;
 	(next_component++)->str.mutable = fmt;
 
@@ -240,26 +423,120 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 
 int main( int argc, char *argv[] ) {
 	progname = argv[0];
-	char *type = NULL, *from = NULL, *on = NULL;
+	char *fstypename = NULL, *mntfromname = NULL, *mntonname = NULL;
+	bool has_bsize = false, has_iosize = false, has_blocks = false, has_bfree = false,
+		 has_bavail = false, has_files = false, has_ffree = false, has_fsid = false,
+		 has_owner = false, has_type = false, has_flags = false, has_fssubtype = false,
+		 has_fsid0 = false, has_fsid1 = false;
+	uint32_t bsize, type, flags, fssubtype;
+	int32_t iosize;
+	uint64_t blocks, bfree, bavail, files, ffree;
+	fsid_t fsid = {
+		.val = { 0, 0 }
+	};
+	uid_t owner;
 	bool quiet = false;
 
+	struct option longopts[help_options_len + 1];
+	for( size_t i = 0; i < help_options_len; i++ )
+		longopts[i] = help_options[i].longopt;
+	bzero(&longopts[help_options_len], sizeof(struct option));
+
 	int ch;
-	while( (ch = getopt_long(argc, argv, "qht:f:o:", longopts, NULL)) != -1 ) {
+	while( (ch = getopt_long(argc, argv, "qht:f:o:B:I:b:F:a:n:e:S:T:U:O:g:s:", longopts, NULL)) != -1 ) {
 		switch( ch ) {
 			case 't':
-				type = optarg;
+				errno = 0;
+				uint32_t t = strtonumber(optarg, 10, uint32_type_t).uint32;
+				if( errno == 0 ) {
+					type = t;
+					has_type = true;
+				} else if( errno == EINVAL ) {
+					fstypename = optarg;
+				} else {
+					perror("strtonumber");
+					exit(EX_DATAERR);
+				}
 				break;
 			case 'f':
-				from = optarg;
+				mntfromname = optarg;
 				break;
 			case 'o':
-				on = optarg;
+				mntonname = optarg;
+				break;
+			case 'B':
+				has_bsize = true;
+				bsize = estrtonumber(optarg, 10, uint32_type_t).uint32;
+				break;
+			case 'I':
+				has_iosize = true;
+				iosize = estrtonumber(optarg, 10, int32_type_t).int32;
+				break;
+			case 'b':
+				has_blocks = true;
+				blocks = estrtonumber(optarg, 10, uint64_type_t).uint64;
+				break;
+			case 'F':
+				has_bfree = true;
+				bfree = estrtonumber(optarg, 10, uint64_type_t).uint64;
+				break;
+			case 'a':
+				has_bavail = true;
+				bavail = estrtonumber(optarg, 10, uint64_type_t).uint64;
+				break;
+			case 'n':
+				has_files = true;
+				files = estrtonumber(optarg, 10, uint64_type_t).uint64;
+				break;
+			case 'e':
+				has_ffree = true;
+				ffree = estrtonumber(optarg, 10, uint64_type_t).uint64;
+				break;
+			case 'S':
+				has_fsid0 = true;
+				fsid.val[0] = estrtonumber(optarg, 10, int32_type_t).int32;
+				break;
+			case 'T':
+				has_fsid1 = true;
+				fsid.val[1] = estrtonumber(optarg, 10, int32_type_t).int32;
+				break;
+			case 'U':
+				has_fsid = true;
+				*((int64_t *) &fsid.val) = estrtonumber(optarg, 10, int64_type_t).int64;
+				break;
+			case 'O':
+				has_owner = true;
+				errno = 0;
+				uintmax_t o;
+				o = strtonumber(optarg, 10, uintmax_type_t).uintmax;
+				if( errno == 0 ) {
+					if( o != (uid_t) o ) {
+						errno = ERANGE;
+						perror("main");
+						exit(EX_DATAERR);
+					}
+					owner = egetpwuid((uid_t) o)->pw_uid;
+				} else if( errno == EINVAL ) {
+					owner = egetpwnam(optarg)->pw_uid;
+				} else {
+					perror("strtonumber");
+					exit(EX_DATAERR);
+				}
+				break;
+			case 'g':
+				has_flags = true;
+				flags = estrtonumber(optarg, 10, uint32_type_t).uint32;
+				break;
+			case 's':
+				has_fssubtype = true;
+				fssubtype = estrtonumber(optarg, 10, uint32_type_t).uint32;
 				break;
 			case 'q':
 				quiet = true;
 				break;
 			case 'h':
 				usage(stdout);
+				help();
 				exit(EX_OK);
 			case '?':
 			case ':':
@@ -280,9 +557,23 @@ int main( int argc, char *argv[] ) {
 	int mntsize = egetmntinfo(&mntbuf, MNT_NOWAIT);
 	int retval = EX_NOTFOUND;
 	for( int i = 0; i < mntsize; i++ ) {
-		if( type != NULL && strncmp(type, mntbuf[i].f_fstypename, MFSTYPENAMELEN) != 0 ) continue;
-		if( from != NULL && strncmp(from, mntbuf[i].f_mntfromname, MAXPATHLEN) != 0 ) continue;
-		if( on != NULL && strncmp(on, mntbuf[i].f_mntonname, MAXPATHLEN) != 0 ) continue;
+		if( fstypename != NULL && strncmp(fstypename, mntbuf[i].f_fstypename, MFSTYPENAMELEN) != 0 ) continue;
+		if( mntfromname != NULL && strncmp(mntfromname, mntbuf[i].f_mntfromname, MAXPATHLEN) != 0 ) continue;
+		if( mntonname != NULL && strncmp(mntonname, mntbuf[i].f_mntonname, MAXPATHLEN) != 0 ) continue;
+		if( has_bsize && bsize != mntbuf[i].f_bsize ) continue;
+		if( has_iosize && iosize != mntbuf[i].f_iosize ) continue;
+		if( has_blocks && blocks != mntbuf[i].f_blocks ) continue;
+		if( has_bfree && bfree != mntbuf[i].f_bfree ) continue;
+		if( has_bavail && bavail != mntbuf[i].f_bavail ) continue;
+		if( has_files && files != mntbuf[i].f_files ) continue;
+		if( has_ffree && ffree != mntbuf[i].f_ffree ) continue;
+		if( has_fsid && *((int64_t *) &fsid.val) != *((int64_t *) &mntbuf[i].f_fsid) ) continue;
+		if( has_owner && owner != mntbuf[i].f_owner ) continue;
+		if( has_type && type != mntbuf[i].f_type ) continue;
+		if( has_flags && flags != mntbuf[i].f_flags ) continue;
+		if( has_fssubtype && fssubtype != mntbuf[i].f_fssubtype ) continue;
+		if( has_fsid0 && fsid.val[0] != mntbuf[i].f_fsid.val[0] ) continue;
+		if( has_fsid1 && fsid.val[1] != mntbuf[i].f_fsid.val[1] ) continue;
 		if( !quiet ) {
 			char *str = get_formatted_string(format, &mntbuf[i]);
 			eprintf("%s\n", str);
