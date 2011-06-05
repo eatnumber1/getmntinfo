@@ -157,6 +157,7 @@ static help_option_t help_options[] = {
 			.val = 'q'
 		},
 		.helpstr = "Produce no output",
+		.argname = NULL
 	},
 	{ { "help", no_argument, NULL, 'h' }, "This help message", NULL },
 	{ { "bsize", required_argument, NULL, 'B' }, "Fundamental filesystem block size", "SIZE" },
