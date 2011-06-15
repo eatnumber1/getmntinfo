@@ -423,10 +423,24 @@ static char *get_formatted_string( const char *format, const struct statfs *stat
 int main( int argc, char *argv[] ) {
 	progname = argv[0];
 	char *fstypename = NULL, *mntfromname = NULL, *mntonname = NULL;
-	bool has_bsize = false, has_iosize = false, has_blocks = false, has_bfree = false,
-		 has_bavail = false, has_files = false, has_ffree = false, has_fsid = false,
-		 has_owner = false, has_type = false, has_flags = false, has_fssubtype = false,
-		 has_fsid0 = false, has_fsid1 = false;
+	struct {
+		bool bsize : 1;
+		bool iosize : 1;
+		bool blocks : 1;
+		bool bfree : 1;
+		bool bavail : 1;
+		bool files : 1;
+		bool ffree : 1;
+		bool fsid : 1;
+		bool owner : 1;
+		bool type : 1;
+		bool flags : 1;
+		bool fssubtype : 1;
+		bool fsid0 : 1;
+		bool fsid1 : 1;
+	} has = {
+		false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+	};
 	uint32_t bsize, type, flags, fssubtype;
 	int32_t iosize;
 	uint64_t blocks, bfree, bavail, files, ffree;
@@ -449,9 +463,9 @@ int main( int argc, char *argv[] ) {
 				errno = 0;
 				type = strtonumber(optarg, 10, uint32_type_t).uint32;
 				if( errno == 0 ) {
-					has_type = true;
+					has.type = true;
 				} else if( errno == EINVAL ) {
-					has_type = false;
+					has.type = false;
 					fstypename = optarg;
 				} else {
 					perror("strtonumber");
@@ -465,47 +479,47 @@ int main( int argc, char *argv[] ) {
 				mntonname = optarg;
 				break;
 			case 'B':
-				has_bsize = true;
+				has.bsize = true;
 				bsize = estrtonumber(optarg, 10, uint32_type_t).uint32;
 				break;
 			case 'I':
-				has_iosize = true;
+				has.iosize = true;
 				iosize = estrtonumber(optarg, 10, int32_type_t).int32;
 				break;
 			case 'b':
-				has_blocks = true;
+				has.blocks = true;
 				blocks = estrtonumber(optarg, 10, uint64_type_t).uint64;
 				break;
 			case 'F':
-				has_bfree = true;
+				has.bfree = true;
 				bfree = estrtonumber(optarg, 10, uint64_type_t).uint64;
 				break;
 			case 'a':
-				has_bavail = true;
+				has.bavail = true;
 				bavail = estrtonumber(optarg, 10, uint64_type_t).uint64;
 				break;
 			case 'n':
-				has_files = true;
+				has.files = true;
 				files = estrtonumber(optarg, 10, uint64_type_t).uint64;
 				break;
 			case 'e':
-				has_ffree = true;
+				has.ffree = true;
 				ffree = estrtonumber(optarg, 10, uint64_type_t).uint64;
 				break;
 			case 'S':
-				has_fsid0 = true;
+				has.fsid0 = true;
 				fsid.val[0] = estrtonumber(optarg, 10, int32_type_t).int32;
 				break;
 			case 'T':
-				has_fsid1 = true;
+				has.fsid1 = true;
 				fsid.val[1] = estrtonumber(optarg, 10, int32_type_t).int32;
 				break;
 			case 'U':
-				has_fsid = true;
+				has.fsid = true;
 				*((int64_t *) &fsid.val) = estrtonumber(optarg, 10, int64_type_t).int64;
 				break;
 			case 'O':
-				has_owner = true;
+				has.owner = true;
 				errno = 0;
 				uintmax_t o;
 				o = strtonumber(optarg, 10, uintmax_type_t).uintmax;
@@ -524,11 +538,11 @@ int main( int argc, char *argv[] ) {
 				}
 				break;
 			case 'g':
-				has_flags = true;
+				has.flags = true;
 				flags = estrtonumber(optarg, 10, uint32_type_t).uint32;
 				break;
 			case 's':
-				has_fssubtype = true;
+				has.fssubtype = true;
 				fssubtype = estrtonumber(optarg, 10, uint32_type_t).uint32;
 				break;
 			case 'q':
@@ -560,20 +574,20 @@ int main( int argc, char *argv[] ) {
 		if( fstypename != NULL && strncmp(fstypename, mntbuf[i].f_fstypename, MFSTYPENAMELEN) != 0 ) continue;
 		if( mntfromname != NULL && strncmp(mntfromname, mntbuf[i].f_mntfromname, MAXPATHLEN) != 0 ) continue;
 		if( mntonname != NULL && strncmp(mntonname, mntbuf[i].f_mntonname, MAXPATHLEN) != 0 ) continue;
-		if( has_bsize && bsize != mntbuf[i].f_bsize ) continue;
-		if( has_iosize && iosize != mntbuf[i].f_iosize ) continue;
-		if( has_blocks && blocks != mntbuf[i].f_blocks ) continue;
-		if( has_bfree && bfree != mntbuf[i].f_bfree ) continue;
-		if( has_bavail && bavail != mntbuf[i].f_bavail ) continue;
-		if( has_files && files != mntbuf[i].f_files ) continue;
-		if( has_ffree && ffree != mntbuf[i].f_ffree ) continue;
-		if( has_fsid && *((int64_t *) &fsid.val) != *((int64_t *) &mntbuf[i].f_fsid) ) continue;
-		if( has_owner && owner != mntbuf[i].f_owner ) continue;
-		if( has_type && type != mntbuf[i].f_type ) continue;
-		if( has_flags && flags != mntbuf[i].f_flags ) continue;
-		if( has_fssubtype && fssubtype != mntbuf[i].f_fssubtype ) continue;
-		if( has_fsid0 && fsid.val[0] != mntbuf[i].f_fsid.val[0] ) continue;
-		if( has_fsid1 && fsid.val[1] != mntbuf[i].f_fsid.val[1] ) continue;
+		if( has.bsize && bsize != mntbuf[i].f_bsize ) continue;
+		if( has.iosize && iosize != mntbuf[i].f_iosize ) continue;
+		if( has.blocks && blocks != mntbuf[i].f_blocks ) continue;
+		if( has.bfree && bfree != mntbuf[i].f_bfree ) continue;
+		if( has.bavail && bavail != mntbuf[i].f_bavail ) continue;
+		if( has.files && files != mntbuf[i].f_files ) continue;
+		if( has.ffree && ffree != mntbuf[i].f_ffree ) continue;
+		if( has.fsid && *((int64_t *) &fsid.val) != *((int64_t *) &mntbuf[i].f_fsid) ) continue;
+		if( has.owner && owner != mntbuf[i].f_owner ) continue;
+		if( has.type && type != mntbuf[i].f_type ) continue;
+		if( has.flags && flags != mntbuf[i].f_flags ) continue;
+		if( has.fssubtype && fssubtype != mntbuf[i].f_fssubtype ) continue;
+		if( has.fsid0 && fsid.val[0] != mntbuf[i].f_fsid.val[0] ) continue;
+		if( has.fsid1 && fsid.val[1] != mntbuf[i].f_fsid.val[1] ) continue;
 		if( !quiet ) {
 			char *str = get_formatted_string(format, &mntbuf[i]);
 			eprintf("%s\n", str);
