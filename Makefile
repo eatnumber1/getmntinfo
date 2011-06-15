@@ -1,7 +1,7 @@
 CC := clang
 
 # Debugging
-PREPEND_CFLAGS := -ggdb3
+#PREPEND_CFLAGS := -ggdb3
 
 # Optimization
 PREPEND_CFLAGS := -fast -O4
