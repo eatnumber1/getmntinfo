@@ -461,11 +461,11 @@ int main( int argc, char *argv[] ) {
 		switch( ch ) {
 			case 't':
 				errno = 0;
-				type = strtonumber(optarg, 10, uint32_type_t).uint32;
+				uint32_t tmp = strtonumber(optarg, 10, uint32_type_t).uint32;
 				if( errno == 0 ) {
 					has.type = true;
+					type = tmp;
 				} else if( errno == EINVAL ) {
-					has.type = false;
 					fstypename = optarg;
 				} else {
 					perror("strtonumber");
