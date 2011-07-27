@@ -1,0 +1,6 @@
+# getmntinfo ![Project Status](http://stillmaintained.com/eatnumber1/getmntinfo.png)
+
+getmntinfo is a command-line wrapper around the getmntinfo(3) libc function. It
+allows you to get information about the currently mounted filesystems.
+
+<!-- vim: set tw=80 : -->
